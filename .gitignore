@@ -1,0 +1,26 @@
+book/
+Workspace/
+.lake/
+target/
+*/.DS_Store
+*.aux
+*.dvi
+*.log
+.dotnet/
+.npm/
+.vscode-server/
+.cache/
+.redhat
+.ssh
+*.zip
+# Lean build/cache folders
+.lake/
+.local/
+
+# OS/editor junk
+.DS_Store
+.vscode/
+
+# Generated logs/junk
+log
+

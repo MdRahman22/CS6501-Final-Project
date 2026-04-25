@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Snake — Coinductive BigBang Game</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      background: #0f0f23;
+      color: #ccc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+    h1 {
+      font-size: 1.6rem;
+      color: #00cc7a;
+      margin-bottom: 0.2rem;
+    }
+    .subtitle {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 1rem;
+    }
+    #board {
+      background: #1a1a2e;
+      border: 2px solid #00cc7a;
+      border-radius: 4px;
+      display: block;
+    }
+    .grid-line { stroke: rgba(255,255,255,0.04); stroke-width: 1; }
+    #info {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0.6rem;
+      font-size: 0.95rem;
+    }
+    #score { color: #00ff88; font-weight: bold; }
+    #status { color: #888; }
+    .controls {
+      margin-top: 0.8rem;
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+    }
+    button {
+      padding: 6px 16px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      border: 1px solid #00cc7a;
+      border-radius: 3px;
+      background: transparent;
+      color: #00cc7a;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(0,204,122,0.15); }
+    button:disabled { opacity: 0.3; cursor: default; }
+    select {
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      background: #1a1a2e;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 3px;
+    }
+    #overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #overlay h2 { font-size: 2rem; color: #ff4444; margin-bottom: 0.5rem; }
+    #overlay .win { color: #00ff88; }
+    #overlay p { font-size: 1.1rem; margin-bottom: 1rem; }
+    #overlay button { font-size: 1rem; padding: 8px 24px; }
+    .hidden { display: none !important; }
+    .instructions {
+      margin-top: 1.2rem;
+      max-width: 620px;
+      font-size: 0.8rem;
+      color: #999;
+      line-height: 1.5;
+    }
+    .instructions kbd {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: #aaa;
+    }
+    /* Demo slider */
+    .demo-controls {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .slider { width: 250px; }
+    .frame-info { font-size: 0.8rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Snake</h1>
+  <p class="subtitle">A coinductive game built on the BigBang framework</p>
+
+  <svg id="board"></svg>
+
+  <div id="info">
+    <span id="score">Score: 0</span>
+    <span id="status">Press Start to play</span>
+  </div>
+
+  <div class="controls">
+    <button id="start-btn">Start Game</button>
+    <button id="demo-btn">Watch Demo</button>
+    <label>Speed:
+      <select id="speed-select">
+        <option value="250">Slow</option>
+        <option value="150" selected>Normal</option>
+        <option value="80">Fast</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="demo-controls hidden" id="demo-controls">
+    <button id="demo-play-btn">Pause</button>
+    <button id="demo-back">&lsaquo;</button>
+    <button id="demo-fwd">&rsaquo;</button>
+    <input type="range" class="slider" id="demo-slider" min="0" value="0">
+    <span class="frame-info" id="demo-info">Frame 0</span>
+  </div>
+
+  <div id="overlay" class="hidden">
+    <h2 id="overlay-title">Game Over</h2>
+    <p id="overlay-msg"></p>
+    <button id="restart-btn">Play Again</button>
+  </div>
+
+  <div class="instructions">
+    <p><strong>How to play:</strong>
+      <kbd>&larr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&rarr;</kbd> to steer.
+      Eat food to grow. Don't hit walls or yourself.</p>
+    <p><strong>Architecture:</strong> This game implements the HtDP BigBang
+      coinductive pattern &mdash; the same <code>toDraw / onTick / onKey / stopWhen</code>
+      structure used in the Lean&nbsp;4 version. The game loop is a coinductive
+      process: each tick produces the next world state, running until
+      <code>stopWhen</code> fires. All handler functions are pure.</p>
+  </div>
+
+  <script>
+    // ========================================================
+    // Configuration (must match Lean's gridW / gridH)
+    // ========================================================
+    const GRID_W = 20, GRID_H = 15;
+    const CELL = 30;
+    const W = GRID_W * CELL, H = GRID_H * CELL;
+
+    // ========================================================
+    // D3 setup
+    // ========================================================
+    const svg = d3.select("#board").attr("width", W).attr("height", H);
+
+    // Grid lines
+    for (let x = 0; x <= GRID_W; x++)
+      svg.append("line").attr("class","grid-line")
+        .attr("x1",x*CELL).attr("y1",0).attr("x2",x*CELL).attr("y2",H);
+    for (let y = 0; y <= GRID_H; y++)
+      svg.append("line").attr("class","grid-line")
+        .attr("x1",0).attr("y1",y*CELL).attr("x2",W).attr("y2",y*CELL);
+
+    // Food glow filter
+    const defs = svg.append("defs");
+    const glow = defs.append("filter").attr("id","glow");
+    glow.append("feGaussianBlur").attr("stdDeviation","3").attr("result","blur");
+    const merge = glow.append("feMerge");
+    merge.append("feMergeNode").attr("in","blur");
+    merge.append("feMergeNode").attr("in","SourceGraphic");
+
+    // ========================================================
+    // Pure game logic (mirrors Lean's Snake.lean exactly)
+    // ========================================================
+    const opposite = { up:"down", down:"up", left:"right", right:"left" };
+
+    function spawnFood(snake) {
+      let c, tries = 100;
+      do {
+        c = { x: Math.floor(Math.random()*GRID_W),
+              y: Math.floor(Math.random()*GRID_H) };
+        tries--;
+      } while (tries > 0 && snake.some(s => s.x===c.x && s.y===c.y));
+      return c;
+    }
+
+    function initialWorld() {
+      const body = [{x:12,y:7},{x:11,y:7},{x:10,y:7}];
+      return { body, dir:"right", food:spawnFood(body),
+               score:0, ticks:0, alive:true };
+    }
+
+    function moveHead(head, dir) {
+      switch (dir) {
+        case "up":    return head.y > 0        ? {x:head.x, y:head.y-1} : null;
+        case "down":  return head.y+1 < GRID_H ? {x:head.x, y:head.y+1} : null;
+        case "left":  return head.x > 0        ? {x:head.x-1, y:head.y} : null;
+        case "right": return head.x+1 < GRID_W ? {x:head.x+1, y:head.y} : null;
+      }
+    }
+
+    // onTick : World -> World  (pure)
+    function stepWorld(w) {
+      if (!w.alive || w.body.length === 0) return {...w, alive:false};
+      const h = moveHead(w.body[0], w.dir);
+      if (!h) return {...w, alive:false, ticks:w.ticks+1};
+      if (w.body.some(c => c.x===h.x && c.y===h.y))
+        return {...w, alive:false, ticks:w.ticks+1};
+      if (h.x===w.food.x && h.y===w.food.y) {
+        const newBody = [h, ...w.body];
+        return {...w, body:newBody, food:spawnFood(newBody),
+                score:w.score+1, ticks:w.ticks+1};
+      }
+      return {...w, body:[h, ...w.body.slice(0,-1)], ticks:w.ticks+1};
+    }
+
+    // onKey : World -> String -> World  (pure)
+    function handleKey(w, key) {
+      const map = {ArrowUp:"up",ArrowDown:"down",ArrowLeft:"left",ArrowRight:"right"};
+      const d = map[key];
+      if (!d || d === opposite[w.dir]) return w;
+      return {...w, dir:d};
+    }
+
+    // ========================================================
+    // BigBang configuration (same fields as Lean's BigBang)
+    // ========================================================
+    const bigBang = {
+      toDraw:   render,
+      onTick:   stepWorld,
+      onKey:    handleKey,
+      stopWhen: w => !w.alive
+    };
+
+    // ========================================================
+    // Rendering (toDraw)
+    // ========================================================
+    function render(w) {
+      svg.selectAll(".cell").remove();
+
+      // Snake body (gradient: bright head → dark tail)
+      w.body.forEach((c, i) => {
+        const t = w.body.length > 1 ? i / (w.body.length - 1) : 0;
+        const lightness = 65 - t * 30;
+        const fill = i === 0 ? "#00ff88" : `hsl(150, 80%, ${lightness}%)`;
+        svg.append("rect").attr("class","cell")
+          .attr("x", c.x*CELL+1).attr("y", c.y*CELL+1)
+          .attr("width", CELL-2).attr("height", CELL-2)
+          .attr("rx", i===0 ? 5 : 2)
+          .attr("fill", fill);
+      });
+
+      // Eyes on the head
+      if (w.body.length > 0) {
+        const hd = w.body[0];
+        const cx = hd.x*CELL + CELL/2, cy = hd.y*CELL + CELL/2;
+        const offsets = {
+          up:    [{dx:-4,dy:-4},{dx:4,dy:-4}],
+          down:  [{dx:-4,dy:4},{dx:4,dy:4}],
+          left:  [{dx:-4,dy:-4},{dx:-4,dy:4}],
+          right: [{dx:4,dy:-4},{dx:4,dy:4}]
+        };
+        (offsets[w.dir]||offsets.right).forEach(o => {
+          svg.append("circle").attr("class","cell")
+            .attr("cx",cx+o.dx).attr("cy",cy+o.dy)
+            .attr("r",2.5).attr("fill","#0f0f23");
+        });
+      }
+
+      // Food
+      svg.append("circle").attr("class","cell")
+        .attr("cx", w.food.x*CELL+CELL/2)
+        .attr("cy", w.food.y*CELL+CELL/2)
+        .attr("r", CELL/3)
+        .attr("fill","#ff4444")
+        .attr("filter","url(#glow)");
+
+      // UI
+      document.getElementById("score").textContent = `Score: ${w.score}`;
+      document.getElementById("status").textContent =
+        w.alive ? `Tick ${w.ticks}` : `Game Over — tick ${w.ticks}`;
+    }
+
+    // ========================================================
+    // Coinductive game loop
+    //
+    // This is the JS analogue of Lean's `partial def runTerminal`:
+    //   1. Observe  (toDraw)
+    //   2. Guard    (stopWhen)
+    //   3. Step     (onTick)
+    //   4. Recur    (setTimeout → loop)
+    //
+    // The loop has no predetermined length — it runs until
+    // stopWhen fires.  This is the coinductive pattern.
+    // ========================================================
+    let world, gameTimer;
+    let speed = 150;
+    let mode = "idle";   // "idle" | "playing" | "demo"
+
+    function gameLoop() {
+      bigBang.toDraw(world);                   // 1. Observe
+      if (bigBang.stopWhen(world)) {           // 2. Guard
+        showOverlay(false);
+        return;
+      }
+      world = bigBang.onTick(world);           // 3. Step
+      gameTimer = setTimeout(gameLoop, speed); // 4. Recur (coinductive tail)
+    }
+
+    // ========================================================
+    // Controls
+    // ========================================================
+    function stopLoop() {
+      clearTimeout(gameTimer);
+      gameTimer = null;
+    }
+
+    function startGame() {
+      stopLoop();
+      hideOverlay();
+      document.getElementById("demo-controls").classList.add("hidden");
+      world = initialWorld();
+      mode = "playing";
+      document.getElementById("start-btn").textContent = "Restart";
+      gameLoop();
+    }
+
+    function showOverlay(win) {
+      const el = document.getElementById("overlay");
+      el.classList.remove("hidden");
+      const title = document.getElementById("overlay-title");
+      title.textContent = win ? "You Win!" : "Game Over";
+      title.className = win ? "win" : "";
+      document.getElementById("overlay-msg").textContent =
+        `Score: ${world.score}  |  Ticks: ${world.ticks}`;
+      mode = "idle";
+    }
+
+    function hideOverlay() {
+      document.getElementById("overlay").classList.add("hidden");
+    }
+
+    // Keyboard input → onKey handler
+    document.addEventListener("keydown", e => {
+      if (mode !== "playing") return;
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        world = bigBang.onKey(world, e.key);
+      }
+    });
+
+    document.getElementById("start-btn").addEventListener("click", startGame);
+    document.getElementById("restart-btn").addEventListener("click", startGame);
+    document.getElementById("speed-select").addEventListener("change", e => {
+      speed = +e.target.value;
+    });
+
+    // ========================================================
+    // Demo mode: load Lean-generated JSON and play it back
+    // ========================================================
+    let demoFrames = null;
+    let demoIdx = 0;
+    let demoTimer = null;
+    let demoPlaying = false;
+
+    function renderDemoFrame(idx) {
+      const f = demoFrames[idx];
+      // Convert JSON frame to a world-like object for the render function
+      render({ body:f.snake, dir:f.dir, food:f.food,
+               score:f.score, ticks:f.ticks, alive:f.alive });
+      document.getElementById("demo-info").textContent =
+        `Frame ${idx} / ${demoFrames.length-1}  |  Score: ${f.score}`;
+      document.getElementById("demo-slider").value = idx;
+    }
+
+    function demoLoop() {
+      if (!demoPlaying) return;
+      demoIdx = (demoIdx + 1);
+      if (demoIdx >= demoFrames.length) {
+        demoIdx = demoFrames.length - 1;
+        demoPlaying = false;
+        document.getElementById("demo-play-btn").textContent = "Play";
+        renderDemoFrame(demoIdx);
+        return;
+      }
+      renderDemoFrame(demoIdx);
+      demoTimer = setTimeout(demoLoop, speed);
+    }
+
+    function startDemo() {
+      if (!demoFrames) {
+        document.getElementById("status").textContent =
+          "No demo.json found — run: .lake/build/bin/snakeviz > Content/B06_CoinductiveGameEngine/viz/demo.json";
+        return;
+      }
+      stopLoop();
+      hideOverlay();
+      mode = "demo";
+      demoIdx = 0;
+      demoPlaying = true;
+      document.getElementById("demo-controls").classList.remove("hidden");
+      document.getElementById("demo-play-btn").textContent = "Pause";
+      document.getElementById("demo-slider").max = demoFrames.length - 1;
+      renderDemoFrame(0);
+      demoTimer = setTimeout(demoLoop, speed);
+    }
+
+    document.getElementById("demo-btn").addEventListener("click", startDemo);
+
+    document.getElementById("demo-play-btn").addEventListener("click", () => {
+      demoPlaying = !demoPlaying;
+      document.getElementById("demo-play-btn").textContent =
+        demoPlaying ? "Pause" : "Play";
+      if (demoPlaying) demoLoop();
+      else clearTimeout(demoTimer);
+    });
+
+    document.getElementById("demo-back").addEventListener("click", () => {
+      demoPlaying = false;
+      clearTimeout(demoTimer);
+      document.getElementById("demo-play-btn").textContent = "Play";
+      demoIdx = Math.max(0, demoIdx - 1);
+      renderDemoFrame(demoIdx);
+    });
+
+    document.getElementById("demo-fwd").addEventListener("click", () => {
+      demoPlaying = false;
+      clearTimeout(demoTimer);
+      document.getElementById("demo-play-btn").textContent = "Play";
+      demoIdx = Math.min(demoFrames.length - 1, demoIdx + 1);
+      renderDemoFrame(demoIdx);
+    });
+
+    document.getElementById("demo-slider").addEventListener("input", e => {
+      demoPlaying = false;
+      clearTimeout(demoTimer);
+      document.getElementById("demo-play-btn").textContent = "Play";
+      demoIdx = +e.target.value;
+      renderDemoFrame(demoIdx);
+    });
+
+    // Try to load demo.json on page load
+    d3.json("demo.json").then(data => {
+      demoFrames = data.frames;
+      document.getElementById("demo-btn").disabled = false;
+    }).catch(() => {
+      document.getElementById("demo-btn").disabled = true;
+      document.getElementById("demo-btn").title =
+        "Run: .lake/build/bin/snakeviz > Content/B06_CoinductiveGameEngine/viz/demo.json";
+    });
+
+    // Render initial empty board
+    render(initialWorld());
+    document.getElementById("status").textContent = "Press Start to play";
+  </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+\documentclass[letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{visual_algebra_params} % Import centralized parameters
+
+% --- Measure widths for specific tables ---
+\newlength{\orheaderwidth}
+\settowidth{\orheaderwidth}{\textbf{Or} : Prop $\to$ Prop $\to$ Prop}
+\addtolength{\orheaderwidth}{1em}
+
+\begin{document}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=\vstd and \hstd]
+
+% --- INPUT TYPE PARAMETERS ---
+\node[proposition_node] (P_prop) {$(P : \text{Prop})$};
+\node[proposition_node] (Q_prop) [right=\hstd of P_prop] {$(Q : \text{Prop})$};
+
+% Input ports for type parameters
+\node[input_port] (P_in_port) [above=\portoffset of P_prop] {};
+\node[input_port] (Q_in_port) [above=\portoffset of Q_prop] {};
+
+% --- CONNECTIVE LAYER ---
+\node[connective_node, above=\vstd of $(P_prop.north)!.5!(Q_prop.north)$] (or_box) {
+    \begin{tabularx}{\orheaderwidth}{>{\centering\arraybackslash}X|>{\centering\arraybackslash}X}
+        \multicolumn{2}{c}{\textbf{Or} : Prop $\to$ Prop $\to$ Prop} \\ \hline
+        (\_ : Prop) & (\_ : Prop)
+    \end{tabularx}
+};
+
+\node[proposition_node] (P_or_Q_prop) [above=2.5cm of or_box] {$(P \lor Q : \text{Prop})$};
+
+% Output port for result type
+\node[output_port] (type_out_port) [above=0.3cm of P_or_Q_prop] {};
+
+% --- INTRODUCTION SECTION ---
+\node[proof_node] (p_P) [below=2.5cm of P_prop] {$(p : P)$};
+\node[proof_node] (q_Q) [below=2.5cm of Q_prop] {$(q : Q)$};
+
+% Input ports for proof terms
+\node[input_port] (p_in_port) [left=0.3cm of p_P] {};
+\node[input_port] (q_in_port) [right=0.3cm of q_Q] {};
+
+\node[intro_rule_node, below=2.5cm of p_P] (or_inl) {
+    \begin{tabular}{c}
+    (\_ : P) : P $\lor$ Q \\ \hline
+    \textbf{Or.intro\_left} : P $\to$ P $\lor$ Q
+    \end{tabular}
+};
+
+\node[intro_rule_node, below=\vstd of q_Q] (or_inr) {
+    \begin{tabular}{c}
+    (\_ : Q) : P $\lor$ Q \\ \hline
+    \textbf{Or.intro\_right} : Q $\to$ P $\lor$ Q
+    \end{tabular}
+};
+
+% --- ELIMINATION SECTION ---
+\node[proof_node] (h_P_or_Q) [below=\vstd of $(or_inl)!.5!(or_inr)$] {$(h : P \lor Q)$};
+
+% Input port for disjunction proof
+\node[input_port] (h_in_port) [above=\portoffset of h_P_or_Q] {};
+
+\node[elim_rule_node, below=\vstd of h_P_or_Q] (or_elim) {
+    \begin{tabular}{c}
+    \textbf{Or.elim} \\
+    (P $\lor$ Q) $\to$ (P $\to$ R) $\to$ (Q $\to$ R) $\to$ R
+    \end{tabular}
+};
+
+% Case continuation proofs
+\node[proof_node] (hp_P_to_R) [right=1.8cm of or_elim, yshift=1.3cm] {$(hp : P \to R)$};
+\node[proof_node] (hq_Q_to_R) [right=1.8cm of or_elim, yshift=-1.3cm] {$(hq : Q \to R)$};
+
+% Input ports for case continuations
+\node[input_port] (hp_in_port) [right=\portoffset of hp_P_to_R] {};
+\node[input_port] (hq_in_port) [right=\portoffset of hq_Q_to_R] {};
+
+% Result and target type
+\node[proof_node] (result_R) [below=\vstd of or_elim] {$(r : R)$};
+\node[proposition_node] (R_prop) [right=1.5cm of result_R] {$(R : \text{Prop})$};
+
+% Input port for target type R
+\node[input_port] (R_in_port) [above=\portoffset of R_prop] {};
+
+% Output port for result
+\node[output_port] (r_out_port) [below=\portoffset of result_R] {};
+
+% --- EDGE ROUTING ---
+\draw[output_arrow] (or_box) -> (P_or_Q_prop);
+\draw[input_arrow] (P_prop.north) to[out=90, in=-90, looseness=\arrowlooseness] node[pos=0.7, sloped, above, font=\small] {$P$} ($(or_box.south west)!.5!(or_box.south)$);
+\draw[input_arrow] (Q_prop.north) to[out=90, in=-90, looseness=\arrowlooseness] node[pos=0.7, sloped, above, font=\small] {$Q$} ($(or_box.south)!.5!(or_box.south east)$);
+
+\draw[input_arrow] (p_P) -> node[left, font=\small] {$p$} (or_inl.north);
+\draw[input_arrow] (q_Q) -> node[right, font=\small] {$q$} (or_inr.north);
+
+\draw[output_arrow] (or_inl.south) to[out=-90, in=150] (h_P_or_Q.north west);
+\draw[output_arrow] (or_inr.south) to[out=-90, in=30] (h_P_or_Q.north east);
+
+\draw[input_arrow] (h_P_or_Q) -> node[left, font=\small] {$h$} (or_elim);
+\draw[input_arrow] (hp_P_to_R) to[out=180, in=30, looseness=\arrowlooseness] node[pos=0.4, above, font=\small] {$hp$} (or_elim.north east);
+\draw[input_arrow] (hq_Q_to_R) to[out=180, in=-30, looseness=\arrowlooseness] node[pos=0.4, below, font=\small] {$hq$} (or_elim.south east);
+\draw[output_arrow] (or_elim) -> (result_R);
+
+% Proves arrows
+\draw[proves_arrow, shorten <=\arrowshortenstart, shorten >=\arrowshortenend] (p_P) -> (P_prop);
+\draw[proves_arrow, shorten <=\arrowshortenstart, shorten >=\arrowshortenend] (q_Q) -> (Q_prop);
+\draw[proves_arrow, shorten <=\arrowshortenstart, shorten >=\arrowshortenend] (result_R) to[out=0, in=180] (R_prop);
+
+% Main "proves" arc using standardized macro
+\standardprovesarc{h_P_or_Q}{P_or_Q_prop}{P_prop}{}
+
+% --- LEGEND ---
+\standardlegend{above right=0.5cm and 1cm}{Q_prop}
+
+\end{tikzpicture}
+\caption{Modular Or connective with composition interfaces. Input ports accept type parameters and proof terms. The dual introduction rules inject into the sum type, while elimination requires case analysis with continuation functions. Output ports provide results for composition.}
+\label{fig:or_modular}
+\end{figure}
+
+\end{document}

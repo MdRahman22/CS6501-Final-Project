@@ -1,0 +1,93 @@
+\documentclass[letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{visual_algebra_params} % Import centralized parameters
+
+% --- Measure widths for specific tables ---
+\newlength{\impliesheaderwidth}
+\settowidth{\impliesheaderwidth}{\textbf{Implies} : Prop $\to$ Prop $\to$ Prop}
+\addtolength{\impliesheaderwidth}{1em}
+
+\begin{document}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[\setnodedistance]
+
+% --- INPUT TYPE PARAMETERS ---
+\node[proposition_node] (P_prop) {$(P : \text{Prop})$};
+\node[proposition_node] (Q_prop) [right=\hstd of P_prop] {$(Q : \text{Prop})$};
+
+% Input ports for type parameters
+\node[input_port] (P_in_port) [above=\portoffset of P_prop] {};
+\node[input_port] (Q_in_port) [above=\portoffset of Q_prop] {};
+
+% --- CONNECTIVE LAYER ---
+\node[connective_node, above=\vstd of $(P_prop.north)!.5!(Q_prop.north)$] (implies_box) {
+    \begin{tabularx}{\impliesheaderwidth}{>{\centering\arraybackslash}X|>{\centering\arraybackslash}X}
+        \multicolumn{2}{c}{\textbf{Implies} : Prop $\to$ Prop $\to$ Prop} \\ \hline
+        (\_ : Prop) & (\_ : Prop)
+    \end{tabularx}
+};
+
+\node[proposition_node] (P_implies_Q_prop) [above=\vstd of implies_box] {$(P \to Q : \text{Prop})$};
+
+% Output port for result type
+\node[output_port] (type_out_port) [above=\portoffset of P_implies_Q_prop] {};
+
+% --- INTRODUCTION SECTION ---
+\node[intro_rule_node, below=\vstd of $(P_prop.north)!.5!(Q_prop.north)$] (implies_intro) {
+    \begin{tabular}{c}
+    $(\text{fun } (\_ : P) \Rightarrow (\_ : Q))$ : P $\to$ Q \\ \hline
+    \textbf{Function abstraction}
+    \end{tabular}
+};
+
+\node[proof_node] (h_P_to_Q) [below=\vstd of implies_intro] {$h : P \to Q$};
+
+% --- ELIMINATION SECTION ---
+\node[proof_node] (p_premise) [below=\vstd of P_prop] {$(p : P)$};
+
+% Input port for premise
+\node[input_port] (p_in_port) [left=\portoffset of p_premise] {};
+
+% Elimination rule
+\node[elim_rule_node, below=\vstd of h_P_to_Q] (implies_elim) {
+    \begin{tabular}{c|c}
+    $\_ : P$ & $\_ : P \to Q$ \\ \hline
+    \multicolumn{2}{c}{\textbf{Function application}}
+    \end{tabular}
+};
+
+\node[proof_node] (result_Q) [right=0.5cm of implies_elim] {$(q : Q)$};
+
+% Output port for result
+\node[output_port] (q_out_port) [below=\portoffset of result_Q] {};
+
+% --- EDGE ROUTING ---
+\draw[output_arrow] (implies_box) -> (P_implies_Q_prop);
+\draw[input_arrow] (P_prop.north) to[out=90, in=-90, looseness=0.7] node[pos=0.6, sloped, above, font=\small] {$P$} ($(implies_box.south west)!.5!(implies_box.south)$);
+\draw[input_arrow] (Q_prop.north) to[out=90, in=-90, looseness=0.7] node[pos=0.6, sloped, above, font=\small] {$Q$} ($(implies_box.south)!.5!(implies_box.south east)$);
+
+\draw[output_arrow] (implies_intro) -> (h_P_to_Q);
+
+\draw[input_arrow] (p_premise) to[out=-45, in=90] node[pos=0.5, left, font=\small] {$p$} ($(implies_elim.north west)!.5!(implies_elim.north)$);
+\draw[input_arrow] (h_P_to_Q) to[out=-90, in=90] node[pos=0.5, right, font=\small] {$h$} ($(implies_elim.north)!.5!(implies_elim.north east)$);
+
+\draw[output_arrow] (implies_elim.east) -> (result_Q.west);
+
+% Proves arrows
+\draw[proves_arrow, shorten <=\arrowshortenstart, shorten >=\arrowshortenend] (p_premise) -> (P_prop);
+\draw[proves_arrow, shorten <=\arrowshortenstart, shorten >=\arrowshortenend] (result_Q) -> (Q_prop);
+
+% Main "proves" arc using standardized macro
+\standardprovesarc{h_P_to_Q}{P_implies_Q_prop}{P_prop}{}
+
+% --- LEGEND ---
+\standardlegend{above right=0.5cm and 1cm}{Q_prop}
+
+\end{tikzpicture}
+\caption{Modular Implies connective with composition interfaces. Input ports accept type parameters and proof terms. The function abstraction creates the implication type, while function application eliminates it. Output ports provide results for composition with other operators.}
+\label{fig:implies_modular}
+\end{figure}
+
+\end{document}

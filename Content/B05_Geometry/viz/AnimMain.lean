@@ -1,0 +1,149 @@
+import Content.B05_Geometry.chapters.CS6501_Rational2D
+
+open Content.B05_Geometry.chapters.rationalVectorSpace
+
+/-- Simple physics-style state: positions and velocities. -/
+structure SimState where
+  targetPos  : RPoint2
+  targetVel  : RVec2
+  missilePos : RPoint2
+  missileVel : RVec2
+
+/-- Add two rational 2D vectors. -/
+def vecAdd : RVec2 → RVec2 → RVec2
+  | ⟨x1, y1⟩, ⟨x2, y2⟩ => ⟨x1 + x2, y1 + y2⟩
+
+/-- Scale a rational 2D vector by a rational number. -/
+def vecScale (k : Rat) : RVec2 → RVec2
+  | ⟨x, y⟩ => ⟨k * x, k * y⟩
+
+/-- Connect consecutive points with segments. -/
+def pathSegments (lbl : String) : List RPoint2 → List String
+  | p1 :: p2 :: ps =>
+      segmentToJson lbl p1 p2 :: pathSegments lbl (p2 :: ps)
+  | _ => []
+
+/-- One physics-style update step.
+    The target keeps constant velocity.
+    The missile keeps some of its old velocity and also steers toward the target. -/
+def nextState (steer : Rat) (s : SimState) : SimState :=
+  let targetPos' : RPoint2 := s.targetVel +ᵥ s.targetPos
+
+  let toTarget : RVec2 := s.targetPos -ᵥ s.missilePos
+
+  let keepFactor : Rat := 3 / 4
+  let keepPart : RVec2 := vecScale keepFactor s.missileVel
+  let steerPart : RVec2 := vecScale steer toTarget
+
+  let missileVel' : RVec2 := vecAdd keepPart steerPart
+  let missilePos' : RPoint2 := missileVel' +ᵥ s.missilePos
+
+  {
+    targetPos := targetPos'
+    targetVel := s.targetVel
+    missilePos := missilePos'
+    missileVel := missileVel'
+  }
+
+/-- Finite simulation: returns the first n+1 states, including the initial one. -/
+def simulate : Nat → Rat → SimState → List SimState
+  | 0, _, s => [s]
+  | Nat.succ n, steer, s =>
+      s :: simulate n steer (nextState steer s)
+
+/-- Infinite-time viewpoint:
+    the state at time n. -/
+def stateAt (steer : Rat) (initState : SimState) : Nat → SimState
+  | 0 => initState
+  | Nat.succ n => stateAt steer (nextState steer initState) n
+
+/-- First n+1 states taken from the infinite-time model. -/
+def prefixStates : Nat → Rat → SimState → List SimState
+  | 0, steer, initState =>
+      [stateAt steer initState 0]
+  | Nat.succ n, steer, initState =>
+      stateAt steer initState 0 :: prefixStates n steer (nextState steer initState)
+
+/-- First real correctness theorem:
+    the finite simulator and the finite prefix of the infinite-time model agree. -/
+theorem prefixStates_eq_simulate
+    (n : Nat) (steer : Rat) (initState : SimState) :
+    prefixStates n steer initState = simulate n steer initState := by
+  induction n generalizing initState with
+  | zero =>
+      rfl
+  | succ n ih =>
+      simp [prefixStates, simulate, stateAt, ih]
+
+/-- Build one frame from the current state and the paths so far. -/
+def frameScene
+  (startState currentState : SimState)
+  (targetSoFar missileSoFar : List RPoint2) : String :=
+
+  let items : List String := [
+    pointToJson "TargetStart" startState.targetPos,
+    pointToJson "MissileStart" startState.missilePos,
+    pointToJson "Target" currentState.targetPos,
+    pointToJson "Missile" currentState.missilePos,
+    vectorToJson "target velocity" currentState.targetPos currentState.targetVel,
+    vectorToJson "missile velocity" currentState.missilePos currentState.missileVel,
+    segmentToJson "gap" currentState.missilePos currentState.targetPos
+  ]
+  ++ pathSegments "target path" targetSoFar
+  ++ pathSegments "missile path" missileSoFar
+
+  toJsonArray items
+
+/-- Turn simulation states into animation frames. -/
+def makeFrames (states : List SimState) : List String :=
+  match states with
+  | [] => []
+  | startState :: _ =>
+      let targetPts : List RPoint2 := states.map SimState.targetPos
+      let missilePts : List RPoint2 := states.map SimState.missilePos
+
+      let rec go (i : Nat) (ss : List SimState) : List String :=
+        match ss with
+        | [] => []
+        | s :: ss' =>
+            let targetSoFar := targetPts.take (i + 1)
+            let missileSoFar := missilePts.take (i + 1)
+            frameScene startState s targetSoFar missileSoFar :: go (i + 1) ss'
+
+      go 0 states
+
+/-- Full animated missile/target pursuit with velocity in the state,
+    rendered from the first part of an infinite-time model. -/
+def anim : String :=
+  let initState : SimState := {
+    targetPos  := ⟨12, 8⟩
+    targetVel  := ⟨1, 1 / 2⟩
+    missilePos := ⟨0, 0⟩
+    missileVel := ⟨1, 3 / 4⟩
+  }
+
+  let steps : Nat := 10
+  let steer : Rat := 1 / 25
+
+  let states : List SimState := prefixStates steps steer initState
+  let frames : List String := makeFrames states
+
+  toJsonArray frames
+
+theorem simulate_length
+    (n : Nat) (steer : Rat) (initState : SimState) :
+    (simulate n steer initState).length = n + 1 := by
+  induction n generalizing initState with
+  | zero =>
+      rfl
+  | succ n ih =>
+      simp [simulate, ih]
+
+theorem prefixStates_length
+    (n : Nat) (steer : Rat) (initState : SimState) :
+    (prefixStates n steer initState).length = n + 1 := by
+  rw [prefixStates_eq_simulate]
+  exact simulate_length n steer initState
+
+def main : IO Unit := do
+  IO.println anim

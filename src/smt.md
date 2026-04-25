@@ -1,0 +1,1 @@
+# Satisfiability Modulo Theories

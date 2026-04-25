@@ -1,0 +1,193 @@
+% visual_algebra_params.sty
+% Centralized parameter definitions for the Visual Algebra of Constructive Logic
+% Version 1.1 - Using only basic colors
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{visual_algebra_params}[2024/01/01 Visual Algebra Parameters v1.1]
+
+\RequirePackage{tikz}
+\RequirePackage{xcolor}
+\RequirePackage{amsmath}
+\RequirePackage{array}
+\RequirePackage{tabularx}
+
+% Load required TikZ libraries
+\usetikzlibrary{
+    positioning,
+    shapes.geometric,
+    arrows.meta,
+    decorations.pathmorphing,
+    calc
+}
+
+% ========================================
+% SPATIAL PARAMETERS
+% ========================================
+
+% Standard vertical spacing between diagram layers
+\newlength{\vstd}
+\setlength{\vstd}{2.5cm}
+
+% Standard horizontal spacing between major elements  
+\newlength{\hstd}
+\setlength{\hstd}{4.5cm}
+
+% Port offset from nodes
+\newlength{\portoffset}
+\setlength{\portoffset}{0.3cm}
+
+% Outset distance for routing proves arrows around diagrams
+\newlength{\outsetdist}
+\setlength{\outsetdist}{1.8cm}
+
+% Node inner spacing - large (for rule boxes)
+\newlength{\innerseplarge}
+\setlength{\innerseplarge}{5pt}
+
+% Node inner spacing - small (for proposition/proof ellipses)
+\newlength{\innersepsmall}
+\setlength{\innersepsmall}{3pt}
+
+% Port size parameters
+\newlength{\portsize}
+\setlength{\portsize}{8pt}
+
+\newlength{\portinnersep}
+\setlength{\portinnersep}{2pt}
+
+% Corner radius for rounded rectangles
+\newlength{\cornerradius}
+\setlength{\cornerradius}{5pt}
+
+% ========================================
+% ARROW PARAMETERS
+% ========================================
+
+% Arrow shortening amounts
+\newlength{\arrowshortenstart}
+\setlength{\arrowshortenstart}{3pt}
+
+\newlength{\arrowshortenend}
+\setlength{\arrowshortenend}{3pt}
+
+% Default arrow looseness
+\def\arrowlooseness{0.8}
+
+% Default legend scale
+\def\legendscale{0.6}
+
+% Double arrow distance
+\newlength{\doublearrowdist}
+\setlength{\doublearrowdist}{1.5pt}
+
+% ========================================
+% TIKZ STYLE DEFINITIONS
+% ========================================
+
+\tikzset{
+    % Node styles for logical elements
+    connective_node/.style={
+        rectangle, 
+        rounded corners=\cornerradius, 
+        draw=black!80, 
+        fill=black!10,
+        inner sep=\innerseplarge, 
+        thick, 
+        align=center
+    },
+    intro_rule_node/.style={
+        rectangle, 
+        rounded corners=\cornerradius, 
+        draw=black!80, 
+        fill=cyan!20,
+        inner sep=\innerseplarge, 
+        thick, 
+        align=center
+    },
+    elim_rule_node/.style={
+        rectangle, 
+        rounded corners=\cornerradius, 
+        draw=black!80, 
+        fill=orange!20,
+        inner sep=\innerseplarge, 
+        thick, 
+        align=center
+    },
+    proposition_node/.style={
+        ellipse, 
+        draw=black!80, 
+        fill=magenta!15,
+        inner sep=\innersepsmall, 
+        align=center
+    },
+    proof_node/.style={
+        ellipse, 
+        draw=black!80, 
+        fill=green!15,
+        inner sep=\innersepsmall, 
+        align=center
+    },
+    % Interface ports for composition
+    input_port/.style={
+        circle, 
+        draw=blue!70!black, 
+        fill=blue!20,
+        inner sep=\portinnersep, 
+        minimum size=\portsize
+    },
+    output_port/.style={
+        circle, 
+        draw=green!80!black, 
+        fill=green!20,
+        inner sep=\portinnersep, 
+        minimum size=\portsize
+    },
+    % Arrow styles
+    input_arrow/.style={
+        -Stealth, 
+        solid, 
+        thick, 
+        draw=blue!70!black
+    },
+    output_arrow/.style={
+        double, 
+        double distance=\doublearrowdist, 
+        -Stealth, 
+        solid, 
+        thick, 
+        draw=green!80!black
+    },
+    proves_arrow/.style={
+        -Stealth, 
+        decorate, 
+        decoration={snake, segment length=6pt, amplitude=1pt}, 
+        thick, 
+        draw=orange!90!black
+    },
+    composition_arrow/.style={
+        -Stealth, 
+        solid, 
+        very thick, 
+        draw=purple!70!black
+    },
+    % Legend style using direct values that TikZ can parse
+    legend_style/.style={
+        draw=black!70, 
+        rounded corners=5pt, 
+        inner sep=5pt
+    },
+    stdshorten/.style={
+        shorten <=3pt, 
+        shorten >=3pt
+    }
+}
+% ========================================
+% UTILITY MACROS
+% ========================================
+
+% \pgfkeys{/tikz/stdshorten/.style={shorten <= \arrowshortenstart, shorten >= \arrowshortenend}}
+\newcommand{\standardprovesarc}[3]{%
+    \coordinate (outset_point) at ($(#3.west)+(-\outsetdist,0)$);%
+    \draw[proves_arrow, stdshorten] (#1.west) -- (outset_point |- #1.west) -- (outset_point |- #2.west) -- (#2.west);%
+}
+\endinput

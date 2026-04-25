@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Missile and Target Trajectories as Affine Motion</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      color: #222;
+      background: #fff;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    p {
+      max-width: 980px;
+      line-height: 1.45;
+    }
+
+    #topBar {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    #topBar button {
+      padding: 8px 14px;
+      cursor: pointer;
+      border: 1px solid #bbb;
+      background: #f5f5f5;
+      border-radius: 6px;
+    }
+
+    #topBar button.active {
+      background: #e8eefc;
+      border-color: #7aa2ff;
+      font-weight: 700;
+    }
+
+    #wrap {
+      margin-top: 16px;
+    }
+
+    #scene {
+      border: 1px solid #ccc;
+      background: #fafafa;
+      display: block;
+    }
+
+    #controlsRow {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .panel {
+      border: 1px solid #ddd;
+      background: #fcfcfc;
+      padding: 12px;
+      border-radius: 8px;
+      min-width: 320px;
+    }
+
+    .panel h3 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    #simControls,
+    #gameControls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #status,
+    #gameStatus {
+      font-size: 14px;
+    }
+
+    #infoBox {
+      min-width: 340px;
+      max-width: 420px;
+    }
+
+    #infoTitle {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    #infoBody {
+      line-height: 1.45;
+      white-space: pre-line;
+      font-size: 14px;
+    }
+
+    #error {
+      color: #c00000;
+      margin-top: 12px;
+      white-space: pre-wrap;
+      font-size: 14px;
+    }
+
+    button {
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    input[type="range"] {
+      width: 260px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .small {
+      font-size: 13px;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <h1>Missile and Target Trajectories as Affine Motion</h1>
+
+  <p>
+    This page has two views. <strong>Simulation Mode</strong> shows the Lean-generated
+    missile-target animation from <code>anim.json</code>. <strong>Game Mode</strong> is
+    a browser-only extra where you control the missile and try to hit the moving target.
+  </p>
+
+  <div id="topBar">
+    <button id="simModeBtn" class="active">Simulation Mode</button>
+    <button id="gameModeBtn">Game Mode</button>
+  </div>
+
+  <div id="wrap">
+    <svg id="scene" width="900" height="600"></svg>
+
+    <div id="controlsRow">
+      <div class="panel">
+        <h3>Controls</h3>
+
+        <div id="simControls">
+          <button id="playPause">Pause</button>
+          <button id="prev">&lt;</button>
+          <button id="next">&gt;</button>
+          <input id="slider" type="range" min="0" max="0" value="0" step="1" />
+          <span id="status">Frame 0 / 0</span>
+        </div>
+
+        <div id="gameControls" class="hidden">
+          <button id="resetGame">Reset Game</button>
+          <span id="gameStatus">Score: 0</span>
+          <div class="small">Move with Arrow Keys or W A S D. Press R to reset.</div>
+        </div>
+      </div>
+
+      <div id="infoBox" class="panel">
+        <div id="infoTitle">Simulation Info</div>
+        <div id="infoBody">Loading animation...</div>
+      </div>
+    </div>
+
+    <div id="error"></div>
+  </div>
+
+  <script>
+    const svg = document.getElementById("scene");
+
+    const simModeBtn = document.getElementById("simModeBtn");
+    const gameModeBtn = document.getElementById("gameModeBtn");
+
+    const playPauseBtn = document.getElementById("playPause");
+    const prevBtn = document.getElementById("prev");
+    const nextBtn = document.getElementById("next");
+    const slider = document.getElementById("slider");
+    const statusEl = document.getElementById("status");
+
+    const simControls = document.getElementById("simControls");
+    const gameControls = document.getElementById("gameControls");
+    const resetGameBtn = document.getElementById("resetGame");
+    const gameStatusEl = document.getElementById("gameStatus");
+
+    const infoTitle = document.getElementById("infoTitle");
+    const infoBody = document.getElementById("infoBody");
+    const errorEl = document.getElementById("error");
+
+    const width = Number(svg.getAttribute("width"));
+    const height = Number(svg.getAttribute("height"));
+    const pad = 50;
+
+    const HIT_RADIUS = 4.5;
+
+    let currentMode = "sim";
+
+    let frames = [];
+    let simBounds = null;
+    let frameIndex = 0;
+    let playing = true;
+    let simTimer = null;
+
+    let gameTimer = null;
+    let keys = {};
+
+    const gameBounds = {
+      minX: 0,
+      maxX: 100,
+      minY: 0,
+      maxY: 70
+    };
+
+    let gameState = null;
+
+    function clearSvg() {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+    }
+
+    function makeSvgEl(tag) {
+      return document.createElementNS("http://www.w3.org/2000/svg", tag);
+    }
+
+    function setError(msg) {
+      errorEl.textContent = msg;
+    }
+
+    function formatNum(x) {
+      return Number(x).toFixed(2);
+    }
+
+    function clamp(x, lo, hi) {
+      return Math.max(lo, Math.min(hi, x));
+    }
+
+    function randBetween(lo, hi) {
+      return lo + Math.random() * (hi - lo);
+    }
+
+    function distance(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function collectBounds(allFrames) {
+      let xs = [];
+      let ys = [];
+
+      for (const frame of allFrames) {
+        for (const item of frame) {
+          if (item.type === "point") {
+            xs.push(item.x);
+            ys.push(item.y);
+          } else if (item.type === "segment" || item.type === "vector") {
+            xs.push(item.x1, item.x2);
+            ys.push(item.y1, item.y2);
+          }
+        }
+      }
+
+      if (xs.length === 0 || ys.length === 0) {
+        return { minX: 0, maxX: 10, minY: 0, maxY: 10 };
+      }
+
+      let minX = Math.min(...xs);
+      let maxX = Math.max(...xs);
+      let minY = Math.min(...ys);
+      let maxY = Math.max(...ys);
+
+      if (minX === maxX) maxX = minX + 1;
+      if (minY === maxY) maxY = minY + 1;
+
+      const dx = maxX - minX;
+      const dy = maxY - minY;
+
+      return {
+        minX: minX - 0.12 * dx,
+        maxX: maxX + 0.12 * dx,
+        minY: minY - 0.12 * dy,
+        maxY: maxY + 0.12 * dy
+      };
+    }
+
+    function makeProjector(bounds) {
+      const sx = (width - 2 * pad) / (bounds.maxX - bounds.minX);
+      const sy = (height - 2 * pad) / (bounds.maxY - bounds.minY);
+      const s = Math.min(sx, sy);
+
+      return function project(x, y) {
+        const px = pad + (x - bounds.minX) * s;
+        const py = height - pad - (y - bounds.minY) * s;
+        return [px, py];
+      };
+    }
+
+    function projectedRadius(project, centerX, centerY, radius) {
+      const [x1, y1] = project(centerX, centerY);
+      const [x2, y2] = project(centerX + radius, centerY);
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function drawAxes(project, bounds) {
+      const xAxis = makeSvgEl("line");
+      const [x1, y1] = project(bounds.minX, 0);
+      const [x2, y2] = project(bounds.maxX, 0);
+      xAxis.setAttribute("x1", x1);
+      xAxis.setAttribute("y1", y1);
+      xAxis.setAttribute("x2", x2);
+      xAxis.setAttribute("y2", y2);
+      xAxis.setAttribute("stroke", "#ddd");
+      svg.appendChild(xAxis);
+
+      const yAxis = makeSvgEl("line");
+      const [u1, v1] = project(0, bounds.minY);
+      const [u2, v2] = project(0, bounds.maxY);
+      yAxis.setAttribute("x1", u1);
+      yAxis.setAttribute("y1", v1);
+      yAxis.setAttribute("x2", u2);
+      yAxis.setAttribute("y2", v2);
+      yAxis.setAttribute("stroke", "#ddd");
+      svg.appendChild(yAxis);
+    }
+
+    function pointColor(label) {
+      if (label === "Target" || label === "TargetStart") return "#2563eb";
+      if (label === "Missile" || label === "MissileStart") return "#dc2626";
+      return "#111";
+    }
+
+    function vectorColor(label) {
+      const lower = String(label).toLowerCase();
+      if (lower.includes("target")) return "#2563eb";
+      if (lower.includes("missile")) return "#dc2626";
+      return "#444";
+    }
+
+    function addArrowDefs() {
+      const defs = makeSvgEl("defs");
+
+      const marker = makeSvgEl("marker");
+      marker.setAttribute("id", "arrow");
+      marker.setAttribute("markerWidth", "10");
+      marker.setAttribute("markerHeight", "10");
+      marker.setAttribute("refX", "8");
+      marker.setAttribute("refY", "3");
+      marker.setAttribute("orient", "auto");
+      marker.setAttribute("markerUnits", "strokeWidth");
+
+      const arrowPath = makeSvgEl("path");
+      arrowPath.setAttribute("d", "M0,0 L0,6 L9,3 z");
+      arrowPath.setAttribute("fill", "#444");
+
+      marker.appendChild(arrowPath);
+      defs.appendChild(marker);
+      svg.appendChild(defs);
+    }
+
+    function findPoint(frame, label) {
+      return frame.find(item => item.type === "point" && item.label === label) || null;
+    }
+
+    function updateSimulationInfo(frame) {
+      const target = findPoint(frame, "Target");
+      const missile = findPoint(frame, "Missile");
+
+      let gapText = "n/a";
+      if (target && missile) {
+        const g = distance(
+          { x: target.x, y: target.y },
+          { x: missile.x, y: missile.y }
+        );
+        gapText = formatNum(g);
+      }
+
+      infoTitle.textContent = "Simulation Info";
+      infoBody.textContent =
+        `Frame: ${frameIndex} / ${Math.max(frames.length - 1, 0)}
+Target: ${target ? `(${formatNum(target.x)}, ${formatNum(target.y)})` : "n/a"}
+Missile: ${missile ? `(${formatNum(missile.x)}, ${formatNum(missile.y)})` : "n/a"}
+Gap length: ${gapText}
+
+This is the Lean-generated motion from anim.json.`;
+    }
+
+    function drawFrame(i) {
+      if (!frames.length) return;
+
+      frameIndex = Math.max(0, Math.min(i, frames.length - 1));
+      slider.value = frameIndex;
+      statusEl.textContent = `Frame ${frameIndex} / ${frames.length - 1}`;
+
+      clearSvg();
+
+      const bounds = simBounds || collectBounds(frames);
+      const project = makeProjector(bounds);
+
+      drawAxes(project, bounds);
+      addArrowDefs();
+
+      const frame = frames[frameIndex];
+
+      for (const item of frame) {
+        if (item.type === "segment") {
+          const [x1, y1] = project(item.x1, item.y1);
+          const [x2, y2] = project(item.x2, item.y2);
+
+          const line = makeSvgEl("line");
+          line.setAttribute("x1", x1);
+          line.setAttribute("y1", y1);
+          line.setAttribute("x2", x2);
+          line.setAttribute("y2", y2);
+
+          if (item.label === "gap") {
+            line.setAttribute("stroke", "#888");
+            line.setAttribute("stroke-dasharray", "6 4");
+          } else if (item.label === "target path") {
+            line.setAttribute("stroke", "#2563eb");
+          } else if (item.label === "missile path") {
+            line.setAttribute("stroke", "#dc2626");
+          } else {
+            line.setAttribute("stroke", "#666");
+          }
+
+          line.setAttribute("stroke-width", "2");
+          svg.appendChild(line);
+        }
+      }
+
+      for (const item of frame) {
+        if (item.type === "vector") {
+          const [x1, y1] = project(item.x1, item.y1);
+          const [x2, y2] = project(item.x2, item.y2);
+
+          const line = makeSvgEl("line");
+          line.setAttribute("x1", x1);
+          line.setAttribute("y1", y1);
+          line.setAttribute("x2", x2);
+          line.setAttribute("y2", y2);
+          line.setAttribute("stroke", vectorColor(item.label));
+          line.setAttribute("stroke-width", "2");
+          line.setAttribute("marker-end", "url(#arrow)");
+          svg.appendChild(line);
+
+          const text = makeSvgEl("text");
+          text.setAttribute("x", x2 + 6);
+          text.setAttribute("y", y2 - 6);
+          text.setAttribute("font-size", "12");
+          text.setAttribute("fill", vectorColor(item.label));
+          text.textContent = item.label;
+          svg.appendChild(text);
+        }
+      }
+
+      for (const item of frame) {
+        if (item.type === "point") {
+          const [cx, cy] = project(item.x, item.y);
+
+          const circle = makeSvgEl("circle");
+          circle.setAttribute("cx", cx);
+          circle.setAttribute("cy", cy);
+          circle.setAttribute(
+            "r",
+            item.label === "Target" || item.label === "Missile" ? "6" : "4"
+          );
+          circle.setAttribute("fill", pointColor(item.label));
+          svg.appendChild(circle);
+
+          const title = makeSvgEl("title");
+          title.textContent = `${item.label}\n(${item.xExact ?? item.x}, ${item.yExact ?? item.y})`;
+          circle.appendChild(title);
+
+          const text = makeSvgEl("text");
+          text.setAttribute("x", cx + 8);
+          text.setAttribute("y", cy - 8);
+          text.setAttribute("font-size", "12");
+          text.setAttribute("fill", pointColor(item.label));
+          text.textContent = item.label;
+          svg.appendChild(text);
+        }
+      }
+
+      updateSimulationInfo(frame);
+    }
+
+    function startSimTimer() {
+      stopSimTimer();
+      simTimer = setInterval(() => {
+        if (!playing || frames.length === 0 || currentMode !== "sim") return;
+        frameIndex = (frameIndex + 1) % frames.length;
+        drawFrame(frameIndex);
+      }, 700);
+    }
+
+    function stopSimTimer() {
+      if (simTimer !== null) {
+        clearInterval(simTimer);
+        simTimer = null;
+      }
+    }
+
+    function makeGameState() {
+      return {
+        missile: { x: 12, y: 12 },
+        target: { x: 78, y: 52 },
+        targetVel: { x: 0.55, y: 0.38 },
+        missilePath: [{ x: 12, y: 12 }],
+        targetPath: [{ x: 78, y: 52 }],
+        score: 0,
+        ticks: 0,
+        hitFlashTicks: 0
+      };
+    }
+
+    function resetGame() {
+      gameState = makeGameState();
+      drawGame();
+    }
+
+    function drawPolyline(points, project, color) {
+      if (points.length < 2) return;
+
+      for (let i = 1; i < points.length; i++) {
+        const p1 = points[i - 1];
+        const p2 = points[i];
+        const [x1, y1] = project(p1.x, p1.y);
+        const [x2, y2] = project(p2.x, p2.y);
+
+        const line = makeSvgEl("line");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", "2");
+        svg.appendChild(line);
+      }
+    }
+
+    function drawLabeledPoint(project, p, label, color, r) {
+      const [cx, cy] = project(p.x, p.y);
+
+      const circle = makeSvgEl("circle");
+      circle.setAttribute("cx", cx);
+      circle.setAttribute("cy", cy);
+      circle.setAttribute("r", String(r));
+      circle.setAttribute("fill", color);
+      svg.appendChild(circle);
+
+      const text = makeSvgEl("text");
+      text.setAttribute("x", cx + 8);
+      text.setAttribute("y", cy - 8);
+      text.setAttribute("font-size", "12");
+      text.setAttribute("fill", color);
+      text.textContent = label;
+      svg.appendChild(text);
+    }
+
+    function drawGameVector(project, start, vec, label, color) {
+      const end = { x: start.x + vec.x, y: start.y + vec.y };
+      const [x1, y1] = project(start.x, start.y);
+      const [x2, y2] = project(end.x, end.y);
+
+      const line = makeSvgEl("line");
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("marker-end", "url(#arrow)");
+      svg.appendChild(line);
+
+      const text = makeSvgEl("text");
+      text.setAttribute("x", x2 + 6);
+      text.setAttribute("y", y2 - 6);
+      text.setAttribute("font-size", "12");
+      text.setAttribute("fill", color);
+      text.textContent = label;
+      svg.appendChild(text);
+    }
+
+    function drawHitRadius(project, target) {
+      const [cx, cy] = project(target.x, target.y);
+      const r = projectedRadius(project, target.x, target.y, HIT_RADIUS);
+
+      const circle = makeSvgEl("circle");
+      circle.setAttribute("cx", cx);
+      circle.setAttribute("cy", cy);
+      circle.setAttribute("r", r);
+      circle.setAttribute("fill", "rgba(37, 99, 235, 0.08)");
+      circle.setAttribute("stroke", "#2563eb");
+      circle.setAttribute("stroke-width", "1.5");
+      circle.setAttribute("stroke-dasharray", "5 5");
+      svg.appendChild(circle);
+    }
+
+    function drawHitFlash() {
+      if (!gameState || gameState.hitFlashTicks <= 0) return;
+
+      const text = makeSvgEl("text");
+      text.setAttribute("x", String(width / 2 - 40));
+      text.setAttribute("y", "70");
+      text.setAttribute("font-size", "34");
+      text.setAttribute("font-weight", "700");
+      text.setAttribute("fill", "#dc2626");
+      text.textContent = "HIT!";
+      svg.appendChild(text);
+    }
+
+    function updateGameInfo() {
+      const gap = distance(gameState.missile, gameState.target);
+
+      infoTitle.textContent = "Game Info";
+      infoBody.textContent =
+        `Score: ${gameState.score}
+Missile: (${formatNum(gameState.missile.x)}, ${formatNum(gameState.missile.y)})
+Target: (${formatNum(gameState.target.x)}, ${formatNum(gameState.target.y)})
+Gap length: ${formatNum(gap)}
+Hit radius: ${formatNum(HIT_RADIUS)}
+
+Controls:
+Arrow Keys or W A S D to move
+R to reset`;
+    }
+
+    function drawGame() {
+      if (!gameState) return;
+
+      clearSvg();
+
+      const project = makeProjector(gameBounds);
+      drawAxes(project, gameBounds);
+      addArrowDefs();
+
+      drawPolyline(gameState.targetPath, project, "#2563eb");
+      drawPolyline(gameState.missilePath, project, "#dc2626");
+
+      const [gx1, gy1] = project(gameState.missile.x, gameState.missile.y);
+      const [gx2, gy2] = project(gameState.target.x, gameState.target.y);
+
+      const gapLine = makeSvgEl("line");
+      gapLine.setAttribute("x1", gx1);
+      gapLine.setAttribute("y1", gy1);
+      gapLine.setAttribute("x2", gx2);
+      gapLine.setAttribute("y2", gy2);
+      gapLine.setAttribute("stroke", "#888");
+      gapLine.setAttribute("stroke-width", "2");
+      gapLine.setAttribute("stroke-dasharray", "6 4");
+      svg.appendChild(gapLine);
+
+      drawHitRadius(project, gameState.target);
+      drawGameVector(project, gameState.target, gameState.targetVel, "target velocity", "#2563eb");
+      drawLabeledPoint(project, gameState.target, "Target", "#2563eb", 6);
+      drawLabeledPoint(project, gameState.missile, "Missile", "#dc2626", 6);
+      drawHitFlash();
+
+      gameStatusEl.textContent = `Score: ${gameState.score}`;
+      updateGameInfo();
+    }
+
+    function updateGameStep() {
+      if (currentMode !== "game" || !gameState) return;
+
+      const move = 1.35;
+
+      if (keys["ArrowUp"] || keys["w"] || keys["W"]) gameState.missile.y += move;
+      if (keys["ArrowDown"] || keys["s"] || keys["S"]) gameState.missile.y -= move;
+      if (keys["ArrowLeft"] || keys["a"] || keys["A"]) gameState.missile.x -= move;
+      if (keys["ArrowRight"] || keys["d"] || keys["D"]) gameState.missile.x += move;
+
+      gameState.missile.x = clamp(gameState.missile.x, gameBounds.minX + 2, gameBounds.maxX - 2);
+      gameState.missile.y = clamp(gameState.missile.y, gameBounds.minY + 2, gameBounds.maxY - 2);
+
+      gameState.target.x += gameState.targetVel.x;
+      gameState.target.y += gameState.targetVel.y;
+
+      if (gameState.target.x <= gameBounds.minX + 2 || gameState.target.x >= gameBounds.maxX - 2) {
+        gameState.targetVel.x *= -1;
+      }
+      if (gameState.target.y <= gameBounds.minY + 2 || gameState.target.y >= gameBounds.maxY - 2) {
+        gameState.targetVel.y *= -1;
+      }
+
+      gameState.target.x = clamp(gameState.target.x, gameBounds.minX + 2, gameBounds.maxX - 2);
+      gameState.target.y = clamp(gameState.target.y, gameBounds.minY + 2, gameBounds.maxY - 2);
+
+      gameState.missilePath.push({ x: gameState.missile.x, y: gameState.missile.y });
+      gameState.targetPath.push({ x: gameState.target.x, y: gameState.target.y });
+
+      if (gameState.missilePath.length > 150) gameState.missilePath.shift();
+      if (gameState.targetPath.length > 150) gameState.targetPath.shift();
+
+      const hitGap = distance(gameState.missile, gameState.target);
+      if (hitGap < HIT_RADIUS) {
+        gameState.score += 1;
+        gameState.hitFlashTicks = 18;
+
+        gameState.target.x = randBetween(20, 85);
+        gameState.target.y = randBetween(15, 60);
+        gameState.targetVel.x = randBetween(0.35, 0.9) * (Math.random() < 0.5 ? -1 : 1);
+        gameState.targetVel.y = randBetween(0.25, 0.7) * (Math.random() < 0.5 ? -1 : 1);
+
+        gameState.targetPath = [{ x: gameState.target.x, y: gameState.target.y }];
+      }
+
+      if (gameState.hitFlashTicks > 0) {
+        gameState.hitFlashTicks -= 1;
+      }
+
+      gameState.ticks += 1;
+      drawGame();
+    }
+
+    function startGameTimer() {
+      stopGameTimer();
+      gameTimer = setInterval(updateGameStep, 30);
+    }
+
+    function stopGameTimer() {
+      if (gameTimer !== null) {
+        clearInterval(gameTimer);
+        gameTimer = null;
+      }
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      setError("");
+
+      simModeBtn.classList.toggle("active", mode === "sim");
+      gameModeBtn.classList.toggle("active", mode === "game");
+
+      simControls.classList.toggle("hidden", mode !== "sim");
+      gameControls.classList.toggle("hidden", mode !== "game");
+
+      if (mode === "sim") {
+        stopGameTimer();
+        if (frames.length > 0) {
+          drawFrame(frameIndex);
+          startSimTimer();
+        } else {
+          infoTitle.textContent = "Simulation Info";
+          infoBody.textContent = "Simulation frames have not loaded yet.";
+        }
+      } else {
+        stopSimTimer();
+        if (!gameState) {
+          gameState = makeGameState();
+        }
+        drawGame();
+        startGameTimer();
+      }
+    }
+
+    playPauseBtn.addEventListener("click", () => {
+      playing = !playing;
+      playPauseBtn.textContent = playing ? "Pause" : "Play";
+    });
+
+    prevBtn.addEventListener("click", () => {
+      if (!frames.length) return;
+      frameIndex = Math.max(0, frameIndex - 1);
+      drawFrame(frameIndex);
+    });
+
+    nextBtn.addEventListener("click", () => {
+      if (!frames.length) return;
+      frameIndex = Math.min(frames.length - 1, frameIndex + 1);
+      drawFrame(frameIndex);
+    });
+
+    slider.addEventListener("input", () => {
+      drawFrame(Number(slider.value));
+    });
+
+    simModeBtn.addEventListener("click", () => {
+      setMode("sim");
+    });
+
+    gameModeBtn.addEventListener("click", () => {
+      setMode("game");
+    });
+
+    resetGameBtn.addEventListener("click", () => {
+      resetGame();
+    });
+
+    window.addEventListener("keydown", (e) => {
+      keys[e.key] = true;
+
+      if (e.key === "r" || e.key === "R") {
+        resetGame();
+      }
+
+      if (
+        ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "W", "a", "A", "s", "S", "d", "D"].includes(e.key)
+      ) {
+        e.preventDefault();
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      keys[e.key] = false;
+    });
+
+    async function loadAnimation() {
+      try {
+        setError("");
+        const response = await fetch("anim.json", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data)) {
+          throw new Error("Top level JSON is not an array.");
+        }
+
+        if (data.length === 0) {
+          throw new Error("anim.json has no frames.");
+        }
+
+        if (!Array.isArray(data[0])) {
+          throw new Error("Each frame should be an array of scene items.");
+        }
+
+        frames = data;
+        simBounds = collectBounds(frames);
+        slider.max = String(frames.length - 1);
+        slider.value = "0";
+        frameIndex = 0;
+
+        if (currentMode === "sim") {
+          drawFrame(0);
+          startSimTimer();
+        }
+      } catch (err) {
+        console.error(err);
+        setError("Could not load anim.json.\n\n" + err);
+        infoTitle.textContent = "Simulation Info";
+        infoBody.textContent = "The page could not load the Lean animation file.";
+      }
+    }
+
+    loadAnimation();
+    resetGame();
+  </script>
+</body>
+</html>

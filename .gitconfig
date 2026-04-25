@@ -1,0 +1,14 @@
+[user]
+	name = Kevin Sullivan
+	email = sullivan@virginia.edu
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[credential]
+	helper = "!f() { /home/dev/.vscode-server/bin/f220831ea2d946c0dcb0f3eaa480eb435a2c1260/node /tmp/vscode-remote-containers-314b052b-3ee4-4453-a9bb-a909737110ed.js git-credential-helper $*; }; f"
+[credential "https://dev.azure.com"]
+	useHttpPath = true
+[init]
+	defaultBranch = main

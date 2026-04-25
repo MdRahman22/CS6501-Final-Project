@@ -1,0 +1,112 @@
+\documentclass[letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{visual_algebra_params}
+
+\newlength{\andheaderwidth}
+\settowidth{\andheaderwidth}{\textbf{And} : Prop $\to$ Prop $\to$ Prop}
+\addtolength{\andheaderwidth}{1em}
+
+\newlength{\andintrofooterwidth}
+\settowidth{\andintrofooterwidth}{\textbf{And.intro} : P $\to$ Q $\to$ P $\land$ Q}
+
+\begin{document}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=\vstd and \hstd]
+
+\node[proposition_node] (P_prop) {$(P : \text{Prop})$};
+\node[proposition_node] (Q_prop) [right=\hstd of P_prop] {$(Q : \text{Prop})$};
+
+\node[input_port] (P_in_port) [above=\portoffset of P_prop] {};
+\node[input_port] (Q_in_port) [above=\portoffset of Q_prop] {};
+
+\node[connective_node, above=\vstd of $(P_prop.north)!.5!(Q_prop.north)$] (and_box) {
+    \begin{tabularx}{\andheaderwidth}{>{\centering\arraybackslash}X|>{\centering\arraybackslash}X}
+        \multicolumn{2}{c}{\textbf{And} : Prop $\to$ Prop $\to$ Prop} \\ \hline
+        (\_ : Prop) & (\_ : Prop)
+    \end{tabularx}
+};
+
+\node[proposition_node] (P_and_Q_prop) [above=\vstd of and_box] {$(P \land Q : \text{Prop})$};
+\node[output_port] (type_out_port) [above=\portoffset of P_and_Q_prop] {};
+
+\node[proof_node] (p_P) [below=\vstd of P_prop] {$(p : P)$};
+\node[proof_node] (q_Q) [below=\vstd of Q_prop] {$(q : Q)$};
+\node[input_port] (p_in_port) [left=\portoffset of p_P] {};
+\node[input_port] (q_in_port) [right=\portoffset of q_Q] {};
+
+\node[intro_rule_node, below=\vstd of $(p_P)!.5!(q_Q)$] (and_intro) {
+    \begin{tabular}{c|c}
+    (\_ : P) & (\_ : Q) \\ \hline
+    \multicolumn{2}{c}{\textbf{And.intro} : P $\to$ Q $\to$ P $\land$ Q}
+    \end{tabular}
+};
+
+\node[proof_node] (pq_pair) [below=\vstd of and_intro] {$(\langle p, q \rangle : P \land Q)$};
+
+\node[elim_rule_node, below left=\vstd and 1cm of pq_pair] (and_left) {
+    \begin{tabular}{c}
+    \_ : (P $\land$ Q) \\ \hline
+    \textbf{And.left} : P $\land$ Q $\to$ P
+    \end{tabular}
+};
+
+\node[elim_rule_node, below right=\vstd and 1cm of pq_pair] (and_right) {
+    \begin{tabular}{c}
+    \_ : (P $\land$ Q) \\ \hline
+    \textbf{And.right} : P $\land$ Q $\to$ Q
+    \end{tabular}
+};
+
+\node[proof_node] (result_p) [below=\vstd of and_left] {$(p : P)$};
+\node[proof_node] (result_q) [below=\vstd of and_right] {$(q : Q)$};
+\node[output_port] (p_out_port) [below=\portoffset of result_p] {};
+\node[output_port] (q_out_port) [below=\portoffset of result_q] {};
+
+\draw[output_arrow] (and_box) -> (P_and_Q_prop);
+\draw[input_arrow] (P_prop.north) to[out=90, in=-90, looseness=\arrowlooseness] node[pos=0.7, sloped, above, font=\small] {$P$} ($(and_box.south west)!.5!(and_box.south)$);
+\draw[input_arrow] (Q_prop.north) to[out=90, in=-90, looseness=\arrowlooseness] node[pos=0.7, sloped, above, font=\small] {$Q$} ($(and_box.south)!.5!(and_box.south east)$);
+
+\draw[input_arrow] (p_P.south) to[out=-90, in=120] node[pos=0.7, sloped, above, font=\small] {$p$} ($(and_intro.north west)!.5!(and_intro.north)$);
+\draw[input_arrow] (q_Q.south) to[out=-90, in=60] node[pos=0.7, sloped, above, font=\small] {$q$} ($(and_intro.north)!.5!(and_intro.north east)$);
+
+\draw[output_arrow] (and_intro) -> (pq_pair);
+
+\draw[input_arrow] (pq_pair.south) to[out=-135, in=90] node[pos=0.4, sloped, above, font=\small] {$\langle p, q \rangle$} (and_left.north);
+\draw[input_arrow] (pq_pair.south) to[out=-45, in=90] node[pos=0.4, sloped, above, font=\small] {$\langle p, q \rangle$} (and_right.north);
+
+\draw[output_arrow] (and_left) -> (result_p);
+\draw[output_arrow] (and_right) -> (result_q);
+
+\draw[proves_arrow, stdshorten] (#1.west) -- (outset_point |- #1.west) -- (outset_point |- #2.west) -- (#2.west);
+
+
+\draw[proves_arrow, \stdshorten] (q_Q) -> (Q_prop);
+\draw[proves_arrow, \stdshorten] (result_p) -> (P_prop);
+\draw[proves_arrow, \stdshorten] (result_q) -> (Q_prop);
+
+\node (legend) [legend_style, above right=0.5cm and 1cm of Q_prop] {
+    \begin{tabular}{cl}
+    \multicolumn{2}{c}{\textbf{Key}} \\[1.5ex]
+    \tikz{\node[connective_node, scale=\legendscale] {And};} & connective \\[1.5ex]
+    \tikz{\node[intro_rule_node, scale=\legendscale] {intro};} & introduction \\[1.5ex]
+    \tikz{\node[elim_rule_node, scale=\legendscale] {elim};} & elimination \\[1.5ex]
+    \tikz{\node[proposition_node, scale=\legendscale] {Prop};} & proposition \\[1.5ex]
+    \tikz{\node[proof_node, scale=\legendscale] {proof};} & proof \\[1.5ex]
+    \tikz{\node[input_port, scale=\legendscale] {};} & input port \\[1.5ex]
+    \tikz{\node[output_port, scale=\legendscale] {};} & output port \\[1.5ex]
+    \tikz{\draw[input_arrow] (0,0.1) -- (0.8,0.1);} & input \\[1.5ex]
+    \tikz{\draw[output_arrow] (0,0.1) -- (0.8,0.1);} & output \\[1.5ex]
+    \tikz{\draw[proves_arrow] (0,0.1) -- (0.8,0.1);} & proves \\
+    \end{tabular}
+};
+
+\standardprovesarc{pq_pair}{P_and_Q_prop}{P_prop}
+
+\end{tikzpicture}
+\caption{Modular And connective with composition interfaces.}
+\label{fig:and_modular}
+\end{figure}
+
+\end{document}

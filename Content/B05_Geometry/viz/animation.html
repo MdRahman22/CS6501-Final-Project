@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Animated Affine Interpolation</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      margin: 2rem;
+      background: #fafafa;
+      color: #333;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 0.3rem; }
+    p  { font-size: 0.9rem; color: #666; max-width: 600px; }
+    #viz { margin-top: 1rem; }
+    svg { background: white; border: 1px solid #ddd; border-radius: 4px; }
+    .point-circle { fill: #e74c3c; stroke: white; stroke-width: 1.5; }
+    .moving-point { fill: #8e44ad; stroke: white; stroke-width: 2; }
+    .point-label { font-size: 11px; fill: #c0392b; font-weight: 500; }
+    .moving-label { font-size: 11px; fill: #6c3483; font-weight: 600; }
+    .vector-line { stroke: #2980b9; stroke-width: 2; }
+    .vector-label { font-size: 10px; fill: #2471a3; }
+    .segment-line { stroke: #7f8c8d; stroke-width: 1.5; stroke-dasharray: 6,3; }
+    .sweep-line { stroke: #8e44ad; stroke-width: 2; }
+    .tooltip {
+      position: absolute; padding: 6px 10px; background: rgba(0,0,0,0.8);
+      color: white; border-radius: 4px; font-size: 12px; pointer-events: none;
+      display: none;
+    }
+    .controls {
+      margin-top: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .controls button {
+      padding: 4px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      border: 1px solid #bbb;
+      border-radius: 3px;
+      background: white;
+    }
+    .controls button:hover { background: #eee; }
+    .slider { width: 300px; }
+    .frame-info { font-size: 13px; color: #555; margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Dynamic Affine Interpolation</h1>
+  <p>Point P, defined as A + t &middot; (C &minus; A), sweeps from A
+     to C as t sweeps from 0 to 1. P is a point-vector sum,
+     where the vector added to A starts at 0 when t is zero
+     and increases to C &minus; A when t reaches 1. Segment BP
+     sweeps across the triangle. Lean computes every frame
+     using exact rational arithmetic &mdash; the browser only
+     plays them back.</p>
+  <div id="viz"></div>
+  <div class="controls">
+    <button id="play-btn">Pause</button>
+    <button id="step-back">&lsaquo;</button>
+    <button id="step-fwd">&rsaquo;</button>
+    <input type="range" class="slider" id="slider" min="0" max="20" value="0">
+    <span class="frame-info" id="frame-info">Frame 0 / 20</span>
+  </div>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const W = 640, H = 640;
+    const margin = { top: 30, right: 30, bottom: 40, left: 40 };
+    const width = W - margin.left - margin.right;
+    const height = H - margin.top - margin.bottom;
+    const FRAME_INTERVAL = 200;
+
+    const svg = d3.select("#viz").append("svg")
+      .attr("width", W).attr("height", H)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // Arrow marker for vectors
+    svg.append("defs").append("marker")
+      .attr("id", "arrowhead")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 8).attr("refY", 0)
+      .attr("markerWidth", 8).attr("markerHeight", 8)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-4L10,0L0,4Z")
+      .attr("fill", "#2980b9");
+
+    const tooltip = d3.select("#tooltip");
+
+    (function(animData) {
+      const frames = animData.frames;
+      const N = frames.length;
+      const slider = document.getElementById("slider");
+      slider.max = N - 1;
+
+      // Compute scales globally across ALL frames so the viewport never jumps
+      const xs = [], ys = [];
+      frames.forEach(frame => frame.forEach(d => {
+        if (d.type === "point") { xs.push(d.x); ys.push(d.y); }
+        if (d.type === "vector" || d.type === "segment") {
+          xs.push(d.x1, d.x2); ys.push(d.y1, d.y2);
+        }
+      }));
+      const pad = 0.8;
+      const xScale = d3.scaleLinear()
+        .domain([Math.floor(Math.min(...xs) - pad), Math.ceil(Math.max(...xs) + pad)])
+        .range([0, width]);
+      const yScale = d3.scaleLinear()
+        .domain([Math.floor(Math.min(...ys) - pad), Math.ceil(Math.max(...ys) + pad)])
+        .range([height, 0]);
+
+      let currentFrame = 0;
+      let playing = true;
+
+      function renderFrame(idx) {
+        const data = frames[idx];
+
+        // Clear previous frame (preserve defs)
+        svg.selectAll(".frame-el").remove();
+
+        // Segments
+        const segments = data.filter(d => d.type === "segment");
+        svg.selectAll(".seg").data(segments).enter().append("line")
+          .attr("class", d => "frame-el " + (d.label === "BP" ? "sweep-line" : "segment-line"))
+          .attr("x1", d => xScale(d.x1)).attr("y1", d => yScale(d.y1))
+          .attr("x2", d => xScale(d.x2)).attr("y2", d => yScale(d.y2));
+
+        // Vectors
+        const vectors = data.filter(d => d.type === "vector");
+        svg.selectAll(".vec").data(vectors).enter().append("line")
+          .attr("class", "frame-el vector-line")
+          .attr("x1", d => xScale(d.x1)).attr("y1", d => yScale(d.y1))
+          .attr("x2", d => xScale(d.x2)).attr("y2", d => yScale(d.y2))
+          .attr("marker-end", "url(#arrowhead)");
+
+        svg.selectAll(".vlabel").data(vectors).enter().append("text")
+          .attr("class", "frame-el vector-label")
+          .attr("text-anchor", "end")
+          .attr("x", d => xScale(d.x1) + (xScale(d.x2) - xScale(d.x1)) * 0.75 - 6)
+          .attr("y", d => yScale(d.y1) + (yScale(d.y2) - yScale(d.y1)) * 0.75 - 6)
+          .text(d => d.label);
+
+        // Points
+        const points = data.filter(d => d.type === "point");
+        svg.selectAll(".pt").data(points).enter().append("circle")
+          .attr("class", d => "frame-el " + (d.label.startsWith("P") ? "moving-point" : "point-circle"))
+          .attr("cx", d => xScale(d.x)).attr("cy", d => yScale(d.y))
+          .attr("r", d => d.label.startsWith("P") ? 6 : 5)
+          .on("mouseover", (event, d) => {
+            tooltip.style("display", "block")
+              .html(`<b>${d.label}</b><br>x = ${d.xExact}<br>y = ${d.yExact}`)
+              .style("left", (event.pageX + 12) + "px")
+              .style("top", (event.pageY - 20) + "px");
+          })
+          .on("mouseout", () => tooltip.style("display", "none"));
+
+        // Labels
+        svg.selectAll(".plabel").data(points).enter().append("text")
+          .attr("class", d => "frame-el " + (d.label.startsWith("P") ? "moving-label" : "point-label"))
+          .attr("x", d => xScale(d.x) + 8)
+          .attr("y", d => yScale(d.y) - 8)
+          .text(d => d.label);
+
+        // Update UI
+        document.getElementById("frame-info").textContent =
+          `Frame ${idx} / ${N - 1}`;
+      }
+
+      // Timer-based animation
+      const timer = d3.interval(() => {
+        if (!playing) return;
+        currentFrame = (currentFrame + 1) % N;
+        slider.value = currentFrame;
+        renderFrame(currentFrame);
+      }, FRAME_INTERVAL);
+
+      // Play/Pause
+      document.getElementById("play-btn").addEventListener("click", () => {
+        playing = !playing;
+        document.getElementById("play-btn").textContent = playing ? "Pause" : "Play";
+      });
+
+      // Step buttons
+      document.getElementById("step-back").addEventListener("click", () => {
+        playing = false;
+        document.getElementById("play-btn").textContent = "Play";
+        currentFrame = (currentFrame - 1 + N) % N;
+        slider.value = currentFrame;
+        renderFrame(currentFrame);
+      });
+      document.getElementById("step-fwd").addEventListener("click", () => {
+        playing = false;
+        document.getElementById("play-btn").textContent = "Play";
+        currentFrame = (currentFrame + 1) % N;
+        slider.value = currentFrame;
+        renderFrame(currentFrame);
+      });
+
+      // Slider scrubbing
+      slider.addEventListener("input", () => {
+        currentFrame = +slider.value;
+        renderFrame(currentFrame);
+      });
+
+      renderFrame(0);
+    })({"meta":{"title":"Affine Interpolation Sweep","frameCount":21,"description":"Point P sweeps from A to C via affineInterp2d; segment BP sweeps across triangle ABC"},"frames":[
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.000000)","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.000000,"y2":0.000000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.000000,"y2":0.000000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.050000)","x":0.050000,"y":0.150000,"xExact":"(1 : Rat)/20","yExact":"(3 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.050000,"y2":0.150000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.050000,"y2":0.150000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.100000)","x":0.100000,"y":0.300000,"xExact":"(1 : Rat)/10","yExact":"(3 : Rat)/10"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.100000,"y2":0.300000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.100000,"y2":0.300000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.150000)","x":0.150000,"y":0.450000,"xExact":"(3 : Rat)/20","yExact":"(9 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.150000,"y2":0.450000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.150000,"y2":0.450000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.200000)","x":0.200000,"y":0.600000,"xExact":"(1 : Rat)/5","yExact":"(3 : Rat)/5"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.200000,"y2":0.600000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.200000,"y2":0.600000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.250000)","x":0.250000,"y":0.750000,"xExact":"(1 : Rat)/4","yExact":"(3 : Rat)/4"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.250000,"y2":0.750000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.250000,"y2":0.750000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.300000)","x":0.300000,"y":0.900000,"xExact":"(3 : Rat)/10","yExact":"(9 : Rat)/10"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.300000,"y2":0.900000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.300000,"y2":0.900000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.350000)","x":0.350000,"y":1.050000,"xExact":"(7 : Rat)/20","yExact":"(21 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.350000,"y2":1.050000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.350000,"y2":1.050000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.400000)","x":0.400000,"y":1.200000,"xExact":"(2 : Rat)/5","yExact":"(6 : Rat)/5"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.400000,"y2":1.200000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.400000,"y2":1.200000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.450000)","x":0.450000,"y":1.350000,"xExact":"(9 : Rat)/20","yExact":"(27 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.450000,"y2":1.350000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.450000,"y2":1.350000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.500000)","x":0.500000,"y":1.500000,"xExact":"(1 : Rat)/2","yExact":"(3 : Rat)/2"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.500000,"y2":1.500000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.500000,"y2":1.500000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.550000)","x":0.550000,"y":1.650000,"xExact":"(11 : Rat)/20","yExact":"(33 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.550000,"y2":1.650000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.550000,"y2":1.650000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.600000)","x":0.600000,"y":1.800000,"xExact":"(3 : Rat)/5","yExact":"(9 : Rat)/5"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.600000,"y2":1.800000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.600000,"y2":1.800000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.650000)","x":0.650000,"y":1.950000,"xExact":"(13 : Rat)/20","yExact":"(39 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.650000,"y2":1.950000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.650000,"y2":1.950000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.700000)","x":0.700000,"y":2.100000,"xExact":"(7 : Rat)/10","yExact":"(21 : Rat)/10"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.700000,"y2":2.100000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.700000,"y2":2.100000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.750000)","x":0.750000,"y":2.250000,"xExact":"(3 : Rat)/4","yExact":"(9 : Rat)/4"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.750000,"y2":2.250000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.750000,"y2":2.250000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.800000)","x":0.800000,"y":2.400000,"xExact":"(4 : Rat)/5","yExact":"(12 : Rat)/5"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.800000,"y2":2.400000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.800000,"y2":2.400000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.850000)","x":0.850000,"y":2.550000,"xExact":"(17 : Rat)/20","yExact":"(51 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.850000,"y2":2.550000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.850000,"y2":2.550000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.900000)","x":0.900000,"y":2.700000,"xExact":"(9 : Rat)/10","yExact":"(27 : Rat)/10"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.900000,"y2":2.700000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.900000,"y2":2.700000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=0.950000)","x":0.950000,"y":2.850000,"xExact":"(19 : Rat)/20","yExact":"(57 : Rat)/20"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":0.950000,"y2":2.850000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":0.950000,"y2":2.850000}
+],
+[
+{"type":"point","label":"A","x":0.000000,"y":0.000000,"xExact":"0","yExact":"0"},
+{"type":"point","label":"B","x":4.000000,"y":0.000000,"xExact":"4","yExact":"0"},
+{"type":"point","label":"C","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"AC","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"segment","label":"AB","x1":0.000000,"y1":0.000000,"x2":4.000000,"y2":0.000000},
+{"type":"segment","label":"BC","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"point","label":"P (t=1.000000)","x":1.000000,"y":3.000000,"xExact":"1","yExact":"3"},
+{"type":"segment","label":"BP","x1":4.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000},
+{"type":"vector","label":"A+t·(C-A)","x1":0.000000,"y1":0.000000,"x2":1.000000,"y2":3.000000}
+]
+]});
+  </script>
+</body>
+</html>
