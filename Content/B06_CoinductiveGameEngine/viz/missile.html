@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Missile Chase - BigBang Visualization</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #101318;
+      color: #f5f5f5;
+      margin: 0;
+      padding: 24px;
+    }
+
+    h1 {
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      color: #b9c0cc;
+      margin-bottom: 18px;
+    }
+
+    .layout {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    canvas {
+      background: #171b22;
+      border: 1px solid #39404d;
+      border-radius: 8px;
+    }
+
+    .panel {
+      min-width: 260px;
+      background: #171b22;
+      border: 1px solid #39404d;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    button {
+      padding: 8px 12px;
+      margin-right: 8px;
+      margin-bottom: 12px;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .stat {
+      margin: 8px 0;
+      font-size: 15px;
+    }
+
+    .legend {
+      margin-top: 16px;
+      color: #cfd6e0;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .box {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .target { background: #ffcc4d; }
+    .missile { background: #6ee7ff; }
+    .caught { background: #ff6b6b; }
+  </style>
+</head>
+<body>
+  <h1>Missile Chase</h1>
+  <div class="subtitle">
+    Lean generates the world states. This page visualizes the target, missile, gap, and catch event.
+  </div>
+
+  <div class="layout">
+    <canvas id="canvas" width="720" height="450"></canvas>
+
+    <div class="panel">
+      <button id="playBtn">Play</button>
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+
+      <input id="slider" type="range" min="0" max="0" value="0" />
+
+      <div class="stat" id="tickStat">tick: 0</div>
+      <div class="stat" id="targetStat">target: </div>
+      <div class="stat" id="missileStat">missile: </div>
+      <div class="stat" id="gapStat">gap: </div>
+      <div class="stat" id="caughtStat">caught: </div>
+
+      <div class="legend">
+        <div><span class="box target"></span>Target</div>
+        <div><span class="box missile"></span>Missile</div>
+        <div><span class="box caught"></span>Catch point</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const gridW = 24;
+    const gridH = 15;
+    const cellSize = 30;
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const playBtn = document.getElementById("playBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const slider = document.getElementById("slider");
+
+    const tickStat = document.getElementById("tickStat");
+    const targetStat = document.getElementById("targetStat");
+    const missileStat = document.getElementById("missileStat");
+    const gapStat = document.getElementById("gapStat");
+    const caughtStat = document.getElementById("caughtStat");
+
+    let frames = [];
+    let index = 0;
+    let timer = null;
+
+    function drawGrid() {
+      ctx.strokeStyle = "#2b313b";
+      ctx.lineWidth = 1;
+
+      for (let x = 0; x <= gridW; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * cellSize, 0);
+        ctx.lineTo(x * cellSize, gridH * cellSize);
+        ctx.stroke();
+      }
+
+      for (let y = 0; y <= gridH; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * cellSize);
+        ctx.lineTo(gridW * cellSize, y * cellSize);
+        ctx.stroke();
+      }
+    }
+
+    function drawCell(cell, color, label) {
+      const px = cell.x * cellSize;
+      const py = cell.y * cellSize;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(px + 4, py + 4, cellSize - 8, cellSize - 8);
+
+      ctx.fillStyle = "#101318";
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, px + cellSize / 2, py + cellSize / 2);
+    }
+
+    function drawPath(upToIndex, field, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+
+      for (let i = 0; i <= upToIndex; i++) {
+        const c = frames[i][field];
+        const px = c.x * cellSize + cellSize / 2;
+        const py = c.y * cellSize + cellSize / 2;
+
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+
+      ctx.stroke();
+    }
+
+    function render(i) {
+      const frame = frames[i];
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+
+      drawPath(i, "target", "#ffcc4d");
+      drawPath(i, "missile", "#6ee7ff");
+
+      if (frame.caught) {
+        drawCell(frame.target, "#ff6b6b", "X");
+      } else {
+        drawCell(frame.target, "#ffcc4d", "T");
+        drawCell(frame.missile, "#6ee7ff", "M");
+      }
+
+      tickStat.textContent = "tick: " + frame.tick;
+      targetStat.textContent = "target: (" + frame.target.x + ", " + frame.target.y + ")";
+      missileStat.textContent = "missile: (" + frame.missile.x + ", " + frame.missile.y + ")";
+      gapStat.textContent = "gap: " + frame.gap;
+      caughtStat.textContent = "caught: " + frame.caught;
+
+      slider.value = i;
+    }
+
+    function play() {
+      if (timer !== null) return;
+
+      timer = setInterval(() => {
+        if (index >= frames.length - 1) {
+          clearInterval(timer);
+          timer = null;
+          return;
+        }
+
+        index++;
+        render(index);
+      }, 500);
+    }
+
+    function pause() {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function reset() {
+      pause();
+      index = 0;
+      render(index);
+    }
+
+    playBtn.onclick = play;
+    pauseBtn.onclick = pause;
+    resetBtn.onclick = reset;
+
+    slider.oninput = () => {
+      pause();
+      index = Number(slider.value);
+      render(index);
+    };
+
+    fetch("missile-demo.json")
+      .then(response => response.json())
+      .then(data => {
+        frames = data;
+        slider.max = frames.length - 1;
+        render(0);
+      })
+      .catch(error => {
+        document.body.innerHTML += "<p>Could not load missile-demo.json. Regenerate it from MissileChaseMain.lean.</p>";
+        console.error(error);
+      });
+  </script>
+</body>
+</html>
