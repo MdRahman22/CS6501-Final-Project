@@ -175,62 +175,6 @@ def targetAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 
 def missileAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
   discreteAcceleration (missileVelocityAt steer initState) t
 
-
-/-
-  Small checkable example values.
-
-  These are not theorems. They are quick Lean evaluations I can use
-  while presenting to show that the time-indexed functions actually compute.
--/
-
-def demoInitState : SimState := {
-  targetPos  := ?12, 8?
-  targetVel  := ?1, 1 / 2?
-  missilePos := ?0, 0?
-  missileVel := ?1, 3 / 4?
-}
-
-def demoSteer : Rat := 1 / 25
-
-#eval targetPositionAt demoSteer demoInitState 0
-#eval targetPositionAt demoSteer demoInitState 3
-#eval missilePositionAt demoSteer demoInitState 3
-#eval targetVelocityAt demoSteer demoInitState 3
-#eval missileVelocityAt demoSteer demoInitState 3
-#eval targetAccelerationAt demoSteer demoInitState 3
-#eval missileAccelerationAt demoSteer demoInitState 3
-#eval (simulate 10 demoSteer demoInitState).length
-#eval (prefixStates 10 demoSteer demoInitState).length
-
-
-/-
-  Small proof facts about the motion model.
-
-  These are useful presentation theorems:
-  they show that the target's velocity is constant in the model.
--/
-
-/-- One update step preserves the target velocity. -/
-theorem nextState_preserves_targetVel
-    (steer : Rat) (s : SimState) :
-    (nextState steer s).targetVel = s.targetVel := by
-  simp [nextState]
-
-/-- The target velocity as a function of time is constant. -/
-theorem targetVelocityAt_constant
-    (steer : Rat) (initState : SimState) (t : Nat) :
-    targetVelocityAt steer initState t = initState.targetVel := by
-  induction t generalizing initState with
-  | zero =>
-      rfl
-  | succ n ih =>
-      unfold targetVelocityAt stateAt
-      change (stateAt steer (nextState steer initState) n).targetVel = initState.targetVel
-      have h := ih (nextState steer initState)
-      unfold targetVelocityAt at h
-      rw [h]
-      exact nextState_preserves_targetVel steer initState
-
 /-- Full animated missile/target pursuit with velocity in the state,
     rendered from the first part of an infinite-time model. -/
 def anim : String :=
