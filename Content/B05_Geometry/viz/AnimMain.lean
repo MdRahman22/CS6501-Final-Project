@@ -153,6 +153,28 @@ def targetDiscreteVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RV
 def missileDiscreteVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
   discreteVelocity (missilePositionAt steer initState) t
 
+
+/-
+  Discrete acceleration functions
+
+  Acceleration is the finite difference of velocity:
+    acceleration at time t = velocity at time t+1 - velocity at time t
+
+  This is the discrete-time version of the professor's derivative idea.
+-/
+
+/-- Discrete derivative of a vector-valued function. -/
+def discreteAcceleration (vel : Nat -> RVec2) (t : Nat) : RVec2 :=
+  vecAdd (vel (t + 1)) (vecScale (-1) (vel t))
+
+/-- Target acceleration computed from target velocity over time. -/
+def targetAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  discreteAcceleration (targetVelocityAt steer initState) t
+
+/-- Missile acceleration computed from missile velocity over time. -/
+def missileAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  discreteAcceleration (missileVelocityAt steer initState) t
+
 /-- Full animated missile/target pursuit with velocity in the state,
     rendered from the first part of an infinite-time model. -/
 def anim : String :=
