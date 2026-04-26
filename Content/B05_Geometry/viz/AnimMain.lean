@@ -175,6 +175,33 @@ def targetAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 
 def missileAccelerationAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
   discreteAcceleration (missileVelocityAt steer initState) t
 
+
+/-
+  Small checkable example values.
+
+  These are not theorems. They are quick Lean evaluations I can use
+  while presenting to show that the time-indexed functions actually compute.
+-/
+
+def demoInitState : SimState := {
+  targetPos  := ?12, 8?
+  targetVel  := ?1, 1 / 2?
+  missilePos := ?0, 0?
+  missileVel := ?1, 3 / 4?
+}
+
+def demoSteer : Rat := 1 / 25
+
+#eval targetPositionAt demoSteer demoInitState 0
+#eval targetPositionAt demoSteer demoInitState 3
+#eval missilePositionAt demoSteer demoInitState 3
+#eval targetVelocityAt demoSteer demoInitState 3
+#eval missileVelocityAt demoSteer demoInitState 3
+#eval targetAccelerationAt demoSteer demoInitState 3
+#eval missileAccelerationAt demoSteer demoInitState 3
+#eval (simulate 10 demoSteer demoInitState).length
+#eval (prefixStates 10 demoSteer demoInitState).length
+
 /-- Full animated missile/target pursuit with velocity in the state,
     rendered from the first part of an infinite-time model. -/
 def anim : String :=
