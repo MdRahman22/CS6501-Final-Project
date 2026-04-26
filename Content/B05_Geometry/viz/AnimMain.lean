@@ -202,6 +202,35 @@ def demoSteer : Rat := 1 / 25
 #eval (simulate 10 demoSteer demoInitState).length
 #eval (prefixStates 10 demoSteer demoInitState).length
 
+
+/-
+  Small proof facts about the motion model.
+
+  These are useful presentation theorems:
+  they show that the target's velocity is constant in the model.
+-/
+
+/-- One update step preserves the target velocity. -/
+theorem nextState_preserves_targetVel
+    (steer : Rat) (s : SimState) :
+    (nextState steer s).targetVel = s.targetVel := by
+  simp [nextState]
+
+/-- The target velocity as a function of time is constant. -/
+theorem targetVelocityAt_constant
+    (steer : Rat) (initState : SimState) (t : Nat) :
+    targetVelocityAt steer initState t = initState.targetVel := by
+  induction t generalizing initState with
+  | zero =>
+      rfl
+  | succ n ih =>
+      unfold targetVelocityAt stateAt
+      change (stateAt steer (nextState steer initState) n).targetVel = initState.targetVel
+      have h := ih (nextState steer initState)
+      unfold targetVelocityAt at h
+      rw [h]
+      exact nextState_preserves_targetVel steer initState
+
 /-- Full animated missile/target pursuit with velocity in the state,
     rendered from the first part of an infinite-time model. -/
 def anim : String :=
