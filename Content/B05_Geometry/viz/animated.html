@@ -857,5 +857,33 @@ R to reset`;
     loadAnimation();
     resetGame();
   </script>
+
+<div id="lean-model-panel" style="
+  position: absolute;
+  right: 24px;
+  top: 90px;
+  width: 330px;
+  padding: 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+">
+  <h3 style="margin-top: 0;">Lean Motion Model</h3>
+
+  <p><b>State:</b> target position, target velocity, missile position, missile velocity.</p>
+
+  <p><b>position(t):</b> implemented by <code>targetPositionAt</code> and <code>missilePositionAt</code>.</p>
+
+  <p><b>velocity(t):</b> implemented by <code>targetVelocityAt</code> and <code>missileVelocityAt</code>.</p>
+
+  <p><b>acceleration(t):</b> implemented as change in velocity from one time step to the next.</p>
+
+  <p><b>Main theorem:</b> <code>prefixStates_eq_simulate</code> proves the finite animation frames agree with the time-indexed model.</p>
+</div>
+
 </body>
 </html>
