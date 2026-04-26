@@ -112,6 +112,47 @@ def makeFrames (states : List SimState) : List String :=
 
       go 0 states
 
+
+/-
+  Time-indexed motion functions
+
+  These definitions make the professor's suggestion explicit:
+  instead of only storing a finite list of frames, we can treat
+  position and velocity as functions of time.
+
+  Since this simulation uses discrete time steps, the derivative-like
+  idea is a finite difference:
+    velocity at time t = position at time t+1 - position at time t
+-/
+
+/-- Target position as a function of time. -/
+def targetPositionAt (steer : Rat) (initState : SimState) (t : Nat) : RPoint2 :=
+  (stateAt steer initState t).targetPos
+
+/-- Missile position as a function of time. -/
+def missilePositionAt (steer : Rat) (initState : SimState) (t : Nat) : RPoint2 :=
+  (stateAt steer initState t).missilePos
+
+/-- Target stored velocity as a function of time. -/
+def targetVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  (stateAt steer initState t).targetVel
+
+/-- Missile stored velocity as a function of time. -/
+def missileVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  (stateAt steer initState t).missileVel
+
+/-- Discrete derivative of a point-valued function. -/
+def discreteVelocity (pos : Nat -> RPoint2) (t : Nat) : RVec2 :=
+  pos (t + 1) -ᵥ pos t
+
+/-- Target velocity computed from consecutive target positions. -/
+def targetDiscreteVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  discreteVelocity (targetPositionAt steer initState) t
+
+/-- Missile velocity computed from consecutive missile positions. -/
+def missileDiscreteVelocityAt (steer : Rat) (initState : SimState) (t : Nat) : RVec2 :=
+  discreteVelocity (missilePositionAt steer initState) t
+
 /-- Full animated missile/target pursuit with velocity in the state,
     rendered from the first part of an infinite-time model. -/
 def anim : String :=
